@@ -1,3 +1,8 @@
+
+In-progress:
+- Add an additional checking in the Build Pipeline where it automatically logs Work Items that are not "Done" but is about to be deployed in production.
+- Leave a comment in the work item on pipeline run, notifying people involved prompting an update from them
+
 This project implements an event-driven DevOps notification system.
 
 When a work item is updated in Azure DevOps, a Service Hook sends

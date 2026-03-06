@@ -29,4 +29,4 @@ Technologies:
 - Microsoft Teams Webhooks
 - Adaptive Cards
 
-Note: Source code is not included due to organizational usage.
+Note: Source code is not included due to organizational usage. Template and documentations provided instead.

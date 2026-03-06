@@ -1,12 +1,26 @@
-Azure DevOps → Microsoft Teams Work Item Notification System
+This project implements an event-driven DevOps notification system.
 
-This project sends intelligent notifications to Microsoft Teams when
-Azure DevOps work items are updated.
+When a work item is updated in Azure DevOps, a Service Hook sends
+a webhook payload to a Cloudflare Worker. The worker processes
+the event, detects state changes and linked pull requests, then
+generates a Microsoft Teams Adaptive Card notification.
 
-The automation detects:
-- Work item state transitions
-- Pull request relations
-- Production readiness states
+Azure DevOps / TFS
+        │
+        │ Service Hook (Work Item Updated)
+        ▼
+Cloudflare Worker (Serverless Webhook)
+        │
+        ├─ Parse Work Item JSON
+        ├─ Detect State Changes
+        ├─ Detect Linked Pull Requests
+        └─ Build Adaptive Card
+        │
+        ▼
+Microsoft Teams Webhook
+        │
+        ▼
+Teams Channel Notification
 
 Technologies:
 - Azure DevOps Service Hooks

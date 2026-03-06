@@ -1,0 +1,149 @@
+# azure-pipelines-template.yml
+# Reusable pipeline template for validating work items, compiling, packaging, and publishing artifacts.
+
+parameters:
+  - name: targetRID
+    type: string
+    default: 'win-x64'
+  - name: buildVersionPrefix
+    type: string
+    default: '6.0.1'
+  - name: artifactName
+    type: string
+    default: 'drop'
+  - name: trackedStates
+    type: object
+    default:
+      - "QA Failed"
+      - "Ready to QA"
+      - "Dev Complete"
+
+steps:
+
+# -----------------------------
+# Validate Work Items (optional)
+# -----------------------------
+- task: PowerShell@2
+  displayName: 'Validate Work Items'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $ErrorActionPreference = "Continue"
+
+      $orgUrl  = "$(System.CollectionUri)"
+      $project = "$(System.TeamProject)"
+      $repoId  = "$(Build.Repository.ID)"
+      $token   = "$(System.AccessToken)"
+
+      $headers = @{
+        Authorization = "Bearer $token"
+        "Content-Type" = "application/json"
+      }
+
+      $results = @()
+      Write-Host "`n────────────────────────────────────────────"
+      Write-Host "   RELEASE WORK ITEMS"
+      Write-Host "────────────────────────────────────────────"
+      Write-Host "Build Commit: $(Build.SourceVersion)`n"
+
+      $commitsUrl = "$orgUrl$project/_apis/git/repositories/$repoId/commits" +
+                    "?searchCriteria.itemVersion.version=$(Build.SourceVersion)" +
+                    "&searchCriteria.itemVersion.versionType=commit" +
+                    "&`$top=300" +
+                    "&api-version=7.0"
+
+      $commits = (Invoke-RestMethod -Uri $commitsUrl -Headers $headers).value
+      $seenPRs = @{}
+
+      foreach ($commit in $commits) {
+        if ($commit.comment -match "Merged PR (\d+)") {
+          $prId = $matches[1]
+          if ($seenPRs.ContainsKey($prId)) { continue }
+          $seenPRs[$prId] = $true
+
+          $wiUrl = "$orgUrl$project/_apis/git/repositories/$repoId/pullRequests/$prId/workitems?api-version=7.0"
+          $workItems = (Invoke-RestMethod -Uri $wiUrl -Headers $headers).value
+
+          foreach ($wi in $workItems) {
+            $wiDetail = Invoke-RestMethod -Uri $wi.url -Headers $headers
+            $state = $wiDetail.fields.'System.State'
+
+            if (${{ parameters.trackedStates }} -contains $state) {
+              $results += [PSCustomObject]@{
+                State = $state
+                ID    = $wiDetail.id
+                PR    = $prId
+                Title = $wiDetail.fields.'System.Title'
+              }
+            }
+          }
+        }
+      }
+
+      if ($results.Count -eq 0) {
+        Write-Host "No work items found."
+      } else {
+        $results | Sort-Object State, ID | Format-Table State, ID, PR, Title -AutoSize
+      }
+
+      Write-Host "`n────────────────────────────────────────────"
+      Write-Host "Total commits scanned: $($commits.Count)"
+      Write-Host "Total work items listed: $($results.Count)"
+      Write-Host "────────────────────────────────────────────`n"
+
+# -----------------------------
+# Install NuGet
+# -----------------------------
+- task: NuGetToolInstaller@1
+  displayName: 'Use NuGet 6.x'
+  inputs:
+    versionSpec: '6.x'
+    checkLatest: true
+
+# -----------------------------
+# Compile & Prepare
+# -----------------------------
+- task: PowerShell@2
+  displayName: 'Compile & Publish Projects'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $ErrorActionPreference = "Stop"
+
+      $src = "$(Build.Repository.LocalPath)"
+      $pub = Join-Path $src 'publish'
+      $rid = '${{ parameters.targetRID }}'
+      $verFull = "${{ parameters.buildVersionPrefix }}.$((Get-Date).ToString('yyyyMMddHHmmss').Substring(3,5))"
+
+      $projects = @(
+        @{Path="Web/Check.Web.Host/Check.Web.Host.csproj"; Out="$pub/Check.Web.Host"},
+        @{Path="Services/Check.Service.Host/Check.Services.Host.csproj"; Out="$pub/Check.Services.Host"}
+      )
+
+      foreach ($p in $projects) {
+        if (Test-Path $p.Out) { Remove-Item $p.Out -Recurse -Force }
+        dotnet publish $p.Path -c Release -f net6.0 -o $p.Out -r $rid `
+          /p:AssemblyVersion=$verFull /p:VersionPrefix=$verFull /p:FileVersion=$verFull
+      }
+
+      Write-Host "Projects compiled and published to $pub"
+
+# -----------------------------
+# Package with 7-Zip
+# -----------------------------
+- script: |
+    cd $(Build.Repository.LocalPath)\publish
+
+    if not exist "$(Build.BuildId)" mkdir "$(Build.BuildId)"
+
+    "C:\Program Files\7-Zip\7z.exe" a $(Build.BuildId)\project.7z *
+  displayName: 'Create 7z Package'
+
+# -----------------------------
+# Publish Artifact
+# -----------------------------
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish artifact'
+  inputs:
+    pathToPublish: $(Build.Repository.LocalPath)\publish\$(Build.BuildId)\project.7z
+    artifactName: '${{ parameters.artifactName }}'

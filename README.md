@@ -1,3 +1,13 @@
+Update:
+- Created a .NET 8 Web API that does the following:
+       -/upload endpoint (POST)
+       -/download endpoint (GET)
+       -API key check (x-api-key)
+       -Save files to a local folder (FilesRootFolder)
+       -Optional folder parameter
+       -Sanitize paths
+       -Download file by folder + filename
+  Added a reusable template as well.
 
 In-progress:
 - Add an additional checking in the Build Pipeline where it automatically logs Work Items that are not "Done" but is about to be deployed in production.
